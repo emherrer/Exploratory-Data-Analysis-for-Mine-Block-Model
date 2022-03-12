@@ -1,0 +1,371 @@
+---
+title: "Análisis Estadístico Modelo de Bloques Mina"
+author: "Emmanuel Herrera Flores"
+date: "Marzo del 2020"
+output:
+  html_document:
+    theme: united
+    toc: yes
+  word_document:
+    toc: yes
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+always_allow_html: true
+---
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+#Configuración de opciones generales
+knitr::opts_chunk$set(
+	error = FALSE,
+	fig.align = "center",
+	message = FALSE,
+	warning = FALSE,
+	comment = "",
+	echo    = FALSE #TRUE muestra el codigo
+)
+```
+
+```{r}
+#Directorio de Trabajo y opciones decimales 
+#setwd("C:/Users/Emmanuel/Desktop/JLCP/CORO")
+options(scipen=999, digits = 8)
+```
+
+
+```{r}
+#Librerias
+library(tidyverse)
+library(readxl)
+library(rstatix)
+library(ggthemes)
+library(DT)         #fansi tables
+library(webshot)#fotos de tablas para PDF - https://bookdown.org/yihui/bookdown/html-widgets.html
+library(plot3D)
+```
+
+
+```{r}
+#Carga de datos
+coro <- read_rds("integrado_dilucion_esteril.rds")
+```
+
+
+## OBJETIVO
+
+El presente estudio tiene como objetivo el mapeo los niveles de leyes de cobre asociados a diferentes unidades geometalúrgicas y zonas del yacimiento, lo anterior servira como apoyo al proceso de planificación de producción del yacimiento.   
+
+
+## EXPLORACIÓN DESCRIPTIVA
+
+A continuación se exploran las principales características de los datos:
+
+```{r}
+# Estructura
+glimpse(coro)
+```
+
+Se puede apreciar que existen 15 variables con aproximadamente 8.7 millones de datos por cada
+una.  Adicionalmente se indican los nombres de cada una de las variables, las cuales son todas numéricas.
+
+```{r}
+# Resumen
+summary(coro)
+```
+
+La tabla anterior muestra el resumen estadístico por variable, en la cual se reportan los siguientes estadísticos:
+
+* Valor mínimo (Min.). 
+* Primer cuartil (1st Qu.), indica que el 25% de los datos es menor o igual al valor reportado.
+* Mediana (Median), indica que el 50% de los datos es menor o igual al valor reportado.
+* Media (Mean), indica el promedio de los datos.
+* Tercer cuartil (3rd Qu.), indica que el 75% de los datos es menor o igual al valor reportado.
+* Valor Maximo (Max.).
+
+En complemento a lo anterior, a continuación se muestra la desviación estándar por variable:
+
+```{r}
+# Desviación estándar
+data.frame(Desv_Estandar=sapply(coro[,1:15], sd, na.rm=TRUE)) %>% 
+  datatable() %>% 
+  formatRound(columns=c('Desv_Estandar'), digits=2)
+  
+```
+
+
+
+### Cobre Residual
+
+El cobre residual se define como "CUT -  CUS_OK - CUS_CN" el cual debe ser siempre mayor o igual a cero.  A forma de verificar la existencia (o no) de valores de cobre residual menores que cero (lo cual correspondería a errores en el modelo de bloques), se procedió a verificar la existencia de valores negativos para la variable antes indicada. 
+
+```{r}
+#Cu residual
+coro %>% 
+    mutate(row_id=row_number()) %>% 
+    mutate(CU_RES=CUT -  CUS_OK - CUS_CN) %>% 
+    mutate(CU_RES_r=round(CU_RES,5)) %>% 
+    slice(which(CU_RES_r<0.000)) %>% 
+    select(row_id,CUT, CUS_OK, CUS_CN, CU_RES_r) %>% 
+    datatable()
+```
+
+Se observa la existencia de 50 observaciones negativas correspondientes a la variable CU_RES_r (cobre residual=CUT -  CUS_OK - CUS_CN).  Adicionalmente se muestran las variables utilizadas en el cálculo (CUT, CUS_OK, CUS_CN) y el número de fila correspondiente (row_id).  
+
+
+
+### Exploración por Categoría
+
+Desde la base de datos original se seleccionaron las variables **CAT** y **Rock.Type** como categorías, con el propósito de evaluar el comportamiento de las variables CUT, CUS_CN y CUS_OK en función de estos factores.  El análisis realizado se puede observar a continuación:
+
+```{r}
+coro %>% 
+    mutate(CAT=as.factor(CAT)) %>% 
+    group_by(CAT) %>% 
+    summarise(n=n()) %>% 
+    mutate(Porcentaje=prop.table(n)*100) %>% 
+    bind_cols(coro %>% 
+                  select(CAT, CUT, CUS_CN, CUS_OK) %>% 
+                  mutate(CAT_f=as.factor(CAT)) %>% 
+                  group_by(CAT_f) %>%
+                  summarise_at(.vars = vars(CUT, CUS_CN, CUS_OK),
+                               .funs = c(Media="mean"))
+              ) %>% 
+    select(-CAT_f) %>% 
+    datatable() %>% 
+    formatRound(columns=c("Porcentaje", "CUT_Media", "CUS_CN_Media", "CUS_OK_Media" ), digits=3)
+
+```
+
+La estadística por categoría CAT (5 niveles de "0" a "4") nos muestra que el 90.85% de los datos tiene un promedio de CUT (CUT_Media) igual a 0.001, es decir, el nivel "0" de la variable CAT contiene en su mayoría mineral estéril.  Adicionalmente en la tabla se incluye el n° de obs. (n) y Porcentaje (%) por categoría, CUS_CN (CUS_CN_Media) y CUS_OK (CUS_OK_Media).   
+
+Al igual que para la variable CAT, la estadística por Rock.Type nos muestra los tipos de roca cuyos valores de CUT son cercanos a cero (estéril), los cuales se identifican con los niveles n° 5, 6, 8, 9, 10 y 11.
+
+```{r}
+coro %>% 
+    mutate(Rock.Type=as.factor(Rock.Type)) %>% 
+    group_by(Rock.Type) %>% 
+    summarise(n=n()) %>% 
+    mutate(Porcentaje=prop.table(n)*100) %>% 
+    bind_cols(coro %>% 
+                  select(Rock.Type, CUT, CUS_CN, CUS_OK) %>% 
+                  mutate(Rock.Type_f=as.factor(Rock.Type)) %>% 
+                  group_by(Rock.Type_f) %>%
+                  summarise_at(.vars = vars(CUT, CUS_CN, CUS_OK),
+                               .funs = c(Media="mean"))
+              ) %>% 
+    select(-Rock.Type_f) %>% 
+    datatable() %>% 
+    formatRound(columns=c("Porcentaje", "CUT_Media", "CUS_CN_Media", "CUS_OK_Media" ), digits=3)
+```
+
+
+
+## EXPLORACION GRÁFICA
+
+A continuación se aprecian una serie de gráficas que nos entregan información adicional de las distribuciones de los datos:
+
+```{r fig.height=12, fig.width=15, cache=TRUE}
+coro %>% 
+    mutate(CAT=as.factor(CAT), Rock.Type=as.factor(Rock.Type)) %>% 
+    #filter(CAT!=0) %>% 
+    select(-X,-Y,-Z) %>% 
+    ggplot(aes(x=CAT, y=CUT)) +
+    #geom_violin(bw=0.3, fill='steelblue')+
+    geom_boxplot(alpha=1, width=0.25, fill='steelblue')+
+    facet_wrap(~Rock.Type)+
+    labs(title = "CUT por CAT y Rock.Type",
+         subtitle = "CAT: niveles 0 al 4. Rock.Type: niveles 1 al 12",
+         y = "CUT (%)",
+         x = "CAT")+
+    scale_y_continuous(limits = c(0, 4), breaks = seq(0, 4, by = 0.5))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    coord_flip()+
+    theme_bw(base_size = 15)
+```
+
+En la gráfica se puede apreciar el comportamiento de la variable CUT por CAT y Rock.Type, en esta se comprueba lo indicado en las tablas anteriores en donde se observa que los Rock.Type n°s 5, 6, 8, 9, 10 y 11 son los que reportan los CUT mas bajos y que, a escepción del rock.Type n°9, pertenecen en su totalidad al CAT "0".  
+
+
+### Exploración con Datos Filtrados
+
+Para efectos de visualizar las observaciones con valores relevantes de CUT, se filtraron las observaciones correspondientes a los Rock.Types n° 5, 6, 8, 9, 10 y 11. 
+
+Las gráficas para los datos filtrados se muestran a continuación:
+
+```{r fig.height=12, fig.width=15, cache=TRUE}
+coro %>% 
+    mutate(Rock.Type=as.factor(Rock.Type)) %>% 
+    filter(Rock.Type!=5, Rock.Type!=6, 
+           Rock.Type!=8, Rock.Type!=9, 
+           Rock.Type!=10, Rock.Type!=11) %>% 
+    ggplot(aes(x=Rock.Type, y=CUT)) +
+    geom_violin(bw=0.015, fill='steelblue')+
+    geom_boxplot(alpha=0.5, width=0.25, fill='blue')+
+    labs(title = "CUT por Rock.Type",
+         subtitle = "Rock.Type n°: 1, 2, 3, 4, 7 y 12",
+         y = "CUT (%)",
+         x = "Rock.Type")+
+    scale_y_continuous(limits = c(0, 4), breaks = seq(0, 4, by = 0.25))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    coord_flip()+
+    theme_bw(base_size = 15)
+```
+
+En la gráfica anterior (violín + boxplot) se muestra la variable CUT por Rock.Type (para sus niveles 1 al 4, 7 y 12).  Cabe señalar aca que el gráfico de violin (el cual es simétrico respecto al eje) nos muestra la distribución general de los datos para variables con muchos datos (como en nuestro caso), adicionalmente los boxplots son útiles para comparar diferentes estadísticos (1 cuatil, mediana y 3er cuatil) entre distribuciones.  
+
+De los diferentes gráficos la principal característica observada radica en la existencia de una fuerte asimetría positiva de los datos (cola derecha de los gráficos de violín), lo cual nos indica la existencia de una gran cantidad de valores atípicos (outliers) que se reportan hacia el intervalo derecho de los indicadores de tendencia central (media y mediana) de la variable CUT.
+
+Los gráficos sugieren que a medida que el número de Rock.Type disminuye la mediana de estos aumenta (recta vertical central de los boxplots) asi como la dispersión de los datos (reflejado en la forma plana de los gráficos de violín).  
+
+El efecto antes señalado se puede ver claramente en el gráfico del Rock.Type n°12 en el cual la mayoría de los valores de CUT estan concentrados aproximadamente alrededor de 0.2%, esto utlimo relfejado en la forma del boxplot y violin correspondiente.  
+
+
+
+```{r fig.height=12, fig.width=15, cache=TRUE}
+coro %>% 
+    mutate(Rock.Type=as.factor(Rock.Type), CAT=as.factor(CAT)) %>% 
+    filter(Rock.Type!=5, Rock.Type!=6, 
+           Rock.Type!=8, Rock.Type!=9, 
+           Rock.Type!=10, Rock.Type!=11) %>% 
+    ggplot(aes(x=CAT, y=CUT)) +
+    geom_violin(bw=0.015, fill='steelblue')+
+    geom_boxplot(alpha=0.5, width=0.25, fill='blue')+
+    labs(title = "CUT por CAT",
+         subtitle = "Rock.Type n°: 1, 2, 3, 4, 7 y 12 correspondientes a CAT n°: 1 al 4",
+         y = "CUT (%)",
+         x = "CAT")+
+    scale_y_continuous(limits = c(0, 4), breaks = seq(0, 4, by = 0.25))+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))+
+    coord_flip()+
+    theme_bw(base_size = 15)
+
+
+
+```
+
+En la gráfica anterior se muestra la variable CUT por CAT (para sus niveles 1 al 4).  En esta se puede observar un fenómeno similar a lo indicado en el gráfico por Rock.Type, esto es, la existencia de una asimetría positiva en todos los CAT's, asi como una concentración en los valores de CUT para los CAT´s mas altos, y por ende, un aumento en la mediana del CUT y en la dispersión para los CAT´s mas bajos.  
+
+
+```{r eval=FALSE, fig.height=12, fig.width=15, cache=TRUE, include=FALSE}
+#Mapa de Histogramas
+coro %>%
+    mutate(Rock.Type=as.factor(Rock.Type)) %>% 
+    filter(Rock.Type!=5, Rock.Type!=6, 
+           Rock.Type!=8, Rock.Type!=9, 
+           Rock.Type!=10, Rock.Type!=11) %>% 
+    select(-X,-Y,-Z, -CAT, -Percent) %>% 
+    stack() %>% 
+    ggplot(aes(x=values, fill=values, y=(..count..)/sum(..count..)))+
+    geom_histogram(binwidth = 0.01, bins = 100, fill='steelblue', center=0.5)+
+    facet_wrap(~ind, scales = "free")+
+    labs(title = "Mapa de Histogramas por Variable",
+         subtitle = "Rock.Type n°: 1, 2, 3, 4, 7, y 12 - Bins: n°=100, ancho=0.01 un., y posición=centrado",
+         y = "Frec. relativa (%)",
+         x = "Valor según corresponda")+
+    scale_y_continuous(labels = scales::percent)+
+    theme_bw(base_size = 15)
+
+```
+
+
+### Exploración 3D del Recurso
+
+Para visualizar el recurso en formato 3D se siguió la lógica usada en los gráficos anteriores, lo que significa que se filtraron los datos correspondientes a los Rock.Types n° 5, 6, 8, 9, 10 y 11.  De esta forma se pueden observar solo los datos con valoes de CUT relevantes.
+
+
+```{r}
+coro3D <- coro %>% 
+    select(X, Y, Z, CUT, Rock.Type, CAT) %>% 
+    mutate(Rock.Type=as.factor(Rock.Type), CAT=as.factor(CAT)) %>% 
+    filter(Rock.Type!=5, Rock.Type!=6, 
+           Rock.Type!=8, Rock.Type!=9, 
+           Rock.Type!=10, Rock.Type!=11)
+```
+
+
+```{r fig.height=12, fig.width=15, cache=TRUE}
+scatter3D(coro3D$X, coro3D$Y, coro3D$Z, 
+          colvar = coro3D$CUT,
+          phi=0,
+          bty = "b2",
+          pch=19,
+          cex=0.75,
+          cex.axis=0.9,
+          ticktype = "detailed",
+          clab=c("CUT (%)"),
+          main="Gráfico 3D para CUT")
+```
+
+Dado que la mayoría de las observaciones se concentran en el intervalo inferior de leyes, no es posible visualizar de forma clara el gradiente del recurso, dado lo anterior se decidió separar las leyes en 3 intervalos; <=0.25, >0.25 y <1 y >=1.  Los gráficos de estos intervalos se muestran a continuación:
+
+```{r}
+#Intervalo Bajo: CUT <= 0.25% 
+coro3D_bajo <- coro3D %>% 
+    filter(CUT<=0.25) 
+
+#Intervalo Medio: CUT >0.25 & CUT<1
+coro3D_medio <- coro3D %>% 
+    filter(CUT>0.25 & CUT<1)
+
+#Intervalo Alto: CUT >=1
+coro3D_alto <- coro3D %>% 
+    filter(CUT>=1)
+
+#212102+383212+34323
+```
+
+
+```{r fig.height=12, fig.width=15, cache=TRUE}
+#Gráfica para intervalo Bajo: CUT <= 0.25% 
+scatter3D(coro3D_bajo$X, coro3D_bajo$Y, coro3D_bajo$Z, 
+          colvar = coro3D_bajo$CUT,
+          phi=0,
+          bty = "b2",
+          pch=19,
+          cex=0.75,
+          cex.axis=0.9,
+          ticktype = "detailed",
+          clab=c("CUT (%)"),
+          main="Gráfico 3D para CUT<=0.25%")
+
+#Gráfica para intervalo Medio: CUT >0.25 & CUT<1 
+scatter3D(coro3D_medio$X, coro3D_medio$Y, coro3D_medio$Z, 
+          colvar = coro3D_medio$CUT,
+          phi=0,
+          bty = "b2",
+          pch=19,
+          cex=0.75,
+          cex.axis=0.9,
+          ticktype = "detailed",
+          clab=c("CUT (%)"),
+          main="Gráfico 3D para CUT >0.25% y <1%")
+
+#Gráfica para intervalo Alto: CUT >1 
+scatter3D(coro3D_alto$X, coro3D_alto$Y, coro3D_alto$Z, 
+          colvar = coro3D_alto$CUT,
+          phi=0,
+          bty = "b2",
+          pch=19,
+          cex=0.75,
+          cex.axis=0.9,
+          ticktype = "detailed",
+          clab=c("CUT (%)"),
+          main="Gráfico 3D para CUT >=1%")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
